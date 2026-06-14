@@ -1,0 +1,236 @@
+[
+  {
+    "id": 1,
+    "order_id": 1,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 100
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036597",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 2,
+    "order_id": 1,
+    "action": "submit_reserve",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 1,
+      "expires_at": "2026-06-15T00:50:36.624015",
+      "quantity": 100
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036597",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 3,
+    "order_id": 1,
+    "action": "approve",
+    "operator_id": 3,
+    "details": {
+      "before_status": "reserved",
+      "after_status": "approved"
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036597",
+    "username": "approver1",
+    "role": "approver"
+  },
+  {
+    "id": 4,
+    "order_id": 1,
+    "action": "release_reservation",
+    "operator_id": 3,
+    "details": {
+      "reservation_id": 1,
+      "reason": "出库释放"
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036597",
+    "username": "approver1",
+    "role": "approver"
+  },
+  {
+    "id": 5,
+    "order_id": 1,
+    "action": "outbound",
+    "operator_id": 3,
+    "details": {
+      "quantity": 100,
+      "source_warehouse_id": 1,
+      "target_warehouse_id": 2
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036597",
+    "username": "approver1",
+    "role": "approver"
+  },
+  {
+    "id": 6,
+    "order_id": 2,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 1000
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036730",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 7,
+    "order_id": 3,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036762",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 8,
+    "order_id": 3,
+    "action": "submit_reserve",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 2,
+      "expires_at": "2026-06-15T00:50:36.791517",
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036762",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 9,
+    "order_id": 3,
+    "action": "approve",
+    "operator_id": 3,
+    "details": {
+      "before_status": "reserved",
+      "after_status": "approved"
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036762",
+    "username": "approver1",
+    "role": "approver"
+  },
+  {
+    "id": 10,
+    "order_id": 4,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 250
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036867",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 11,
+    "order_id": 5,
+    "action": "create_draft",
+    "operator_id": 2,
+    "details": {
+      "quantity": 250
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036893",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 12,
+    "order_id": 4,
+    "action": "submit_reserve",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 3,
+      "expires_at": "2026-06-15T00:50:36.919934",
+      "quantity": 250
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036867",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 13,
+    "order_id": 4,
+    "action": "release_reservation",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 3,
+      "reason": "撤回释放"
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036867",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 14,
+    "order_id": 4,
+    "action": "withdraw",
+    "operator_id": 1,
+    "details": null,
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036867",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 15,
+    "order_id": 5,
+    "action": "submit_reserve",
+    "operator_id": 2,
+    "details": {
+      "reservation_id": 4,
+      "expires_at": "2026-06-15T00:50:36.992660",
+      "quantity": 250
+    },
+    "created_at": "2026-06-14 16:20:36",
+    "order_no": "TR20260615002036893",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 16,
+    "order_id": 5,
+    "action": "release_reservation",
+    "operator_id": 3,
+    "details": {
+      "reservation_id": 4,
+      "reason": "驳回释放"
+    },
+    "created_at": "2026-06-14 16:20:37",
+    "order_no": "TR20260615002036893",
+    "username": "approver1",
+    "role": "approver"
+  },
+  {
+    "id": 17,
+    "order_id": 5,
+    "action": "reject",
+    "operator_id": 3,
+    "details": {
+      "reason": "申请数量过大"
+    },
+    "created_at": "2026-06-14 16:20:37",
+    "order_no": "TR20260615002036893",
+    "username": "approver1",
+    "role": "approver"
+  }
+]
