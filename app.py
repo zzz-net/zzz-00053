@@ -32,7 +32,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('requester', 'approver')),
+            role TEXT NOT NULL CHECK(role IN ('requester', 'approver', 'system')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -119,12 +119,15 @@ def init_db():
 
     c.execute('SELECT COUNT(*) FROM users')
     if c.fetchone()[0] == 0:
+        c.execute("INSERT OR IGNORE INTO users (id, username, role) VALUES (0, 'system', 'system')")
         c.executemany('INSERT INTO users (username, role) VALUES (?, ?)', [
             ('requester1', 'requester'),
             ('requester2', 'requester'),
             ('approver1', 'approver'),
             ('approver2', 'approver'),
         ])
+    else:
+        c.execute("INSERT OR IGNORE INTO users (id, username, role) VALUES (0, 'system', 'system')")
 
     c.execute('SELECT COUNT(*) FROM warehouses')
     if c.fetchone()[0] == 0:
@@ -190,35 +193,40 @@ def get_available_quantity(db, warehouse_id, material_id):
         return None
     return inv['actual_quantity'] - inv['reserved_quantity'] - inv['safety_stock']
 
+def release_expired_reservations(db, reason='system'):
+    now = datetime.now().isoformat()
+    rows = db.execute('''SELECT r.* FROM reservations r
+                         JOIN transfer_orders o ON r.order_id = o.id
+                         WHERE r.expires_at <= ? AND r.is_released = 0
+                         AND o.status = 'reserved' ''', (now,)).fetchall()
+
+    count = 0
+    for r in rows:
+        db.execute('UPDATE inventory SET reserved_quantity = reserved_quantity - ? '
+                   'WHERE warehouse_id = ? AND material_id = ?',
+                   (r['quantity'], r['warehouse_id'], r['material_id']))
+        db.execute('UPDATE reservations SET is_released = 1 WHERE id = ?', (r['id'],))
+        db.execute('UPDATE transfer_orders SET status = ?, reservation_id = NULL, updated_at = ? '
+                   'WHERE id = ?', ('expired', datetime.now().isoformat(), r['order_id']))
+        db.execute('''INSERT INTO audit_logs (order_id, action, operator_id, details)
+                      VALUES (?, 'reservation_expired', 0, ?)''',
+                   (r['order_id'], json.dumps({
+                       'reservation_id': r['id'],
+                       'quantity': r['quantity'],
+                       'expired_at': r['expires_at'],
+                       'released_at': now,
+                       'reason': reason
+                   }, ensure_ascii=False)))
+        count += 1
+    return count
+
 def expire_reservations_worker():
     while True:
         try:
             conn = sqlite3.connect(DATABASE)
+            conn.row_factory = sqlite3.Row
             conn.execute('PRAGMA foreign_keys = ON')
-            c = conn.cursor()
-
-            now = datetime.now().isoformat()
-            c.execute('''SELECT r.* FROM reservations r
-                         JOIN transfer_orders o ON r.order_id = o.id
-                         WHERE r.expires_at <= ? AND r.is_released = 0
-                         AND o.status = 'reserved' ''', (now,))
-
-            expired = c.fetchall()
-            for r in expired:
-                c.execute('UPDATE inventory SET reserved_quantity = reserved_quantity - ? '
-                          'WHERE warehouse_id = ? AND material_id = ?',
-                          (r['quantity'], r['warehouse_id'], r['material_id']))
-                c.execute('UPDATE reservations SET is_released = 1 WHERE id = ?', (r['id'],))
-                c.execute('UPDATE transfer_orders SET status = ?, reservation_id = NULL, updated_at = ? '
-                          'WHERE id = ?', ('expired', datetime.now().isoformat(), r['order_id']))
-                c.execute('''INSERT INTO audit_logs (order_id, action, operator_id, details)
-                              VALUES (?, 'reservation_expired', 0, ?)''',
-                          (r['order_id'], json.dumps({
-                              'reservation_id': r['id'],
-                              'quantity': r['quantity'],
-                              'expired_at': now
-                          }, ensure_ascii=False)))
-
+            release_expired_reservations(conn, reason='background_worker')
             conn.commit()
             conn.close()
         except Exception as e:
@@ -383,16 +391,22 @@ def approve_order(order_id):
     if order['status'] != 'reserved':
         return jsonify({'error': f'当前状态 {order["status"]} 不能审批'}), 400
 
+    release_expired_reservations(db, reason='approve_check')
+
+    order = db.execute('SELECT * FROM transfer_orders WHERE id = ?', (order_id,)).fetchone()
+    if order['status'] == 'expired':
+        db.commit()
+        return jsonify({'error': '预占已过期，请重新提交'}), 400
+
     reservation = db.execute('SELECT * FROM reservations WHERE id = ? AND is_released = 0',
                              (order['reservation_id'],)).fetchone()
     if not reservation:
+        db.commit()
         return jsonify({'error': '预占已失效，请重新提交'}), 400
-
-    if reservation['expires_at'] < datetime.now().isoformat():
-        return jsonify({'error': '预占已过期，请重新提交'}), 400
 
     available = get_available_quantity(db, order['source_warehouse_id'], order['material_id'])
     if available < 0:
+        db.commit()
         return jsonify({'error': '库存已不足，请重新确认'}), 400
 
     db.execute('''UPDATE transfer_orders
@@ -661,29 +675,7 @@ def export_audit(fmt):
 @app.route('/api/reservations/cleanup', methods=['POST'])
 def manual_cleanup_expired():
     db = get_db()
-    now = datetime.now().isoformat()
-    c = db.execute('''SELECT r.* FROM reservations r
-                      JOIN transfer_orders o ON r.order_id = o.id
-                      WHERE r.expires_at <= ? AND r.is_released = 0
-                      AND o.status = 'reserved' ''', (now,))
-    expired = c.fetchall()
-    count = 0
-    for r in expired:
-        db.execute('UPDATE inventory SET reserved_quantity = reserved_quantity - ? '
-                   'WHERE warehouse_id = ? AND material_id = ?',
-                   (r['quantity'], r['warehouse_id'], r['material_id']))
-        db.execute('UPDATE reservations SET is_released = 1 WHERE id = ?', (r['id'],))
-        db.execute('UPDATE transfer_orders SET status = ?, reservation_id = NULL, updated_at = ? '
-                   'WHERE id = ?', ('expired', datetime.now().isoformat(), r['order_id']))
-        db.execute('''INSERT INTO audit_logs (order_id, action, operator_id, details)
-                      VALUES (?, 'reservation_expired', 0, ?)''',
-                   (r['order_id'], json.dumps({
-                       'reservation_id': r['id'],
-                       'quantity': r['quantity'],
-                       'expired_at': now,
-                       'manual': True
-                   }, ensure_ascii=False)))
-        count += 1
+    count = release_expired_reservations(db, reason='manual_cleanup')
     db.commit()
     return jsonify({'cleaned_count': count})
 
@@ -700,6 +692,21 @@ def get_stats():
 
 if __name__ == '__main__':
     init_db()
+    startup_conn = sqlite3.connect(DATABASE)
+    startup_conn.row_factory = sqlite3.Row
+    startup_conn.execute('PRAGMA foreign_keys = ON')
+    before_count = startup_conn.execute(
+        "SELECT COUNT(*) FROM reservations r JOIN transfer_orders o ON r.order_id = o.id "
+        "WHERE r.is_released = 0 AND o.status = 'reserved'"
+    ).fetchone()[0]
+    print(f'Startup: found {before_count} reserved (unreleased) reservations')
+    startup_cleaned = release_expired_reservations(startup_conn, reason='startup_cleanup')
+    startup_conn.commit()
+    startup_conn.close()
+    if startup_cleaned > 0:
+        print(f'Startup: cleaned {startup_cleaned} expired reservation(s)')
+    else:
+        print('Startup: no expired reservations to clean')
     t = threading.Thread(target=expire_reservations_worker, daemon=True)
     t.start()
     app.run(host='127.0.0.1', port=5000, debug=False)

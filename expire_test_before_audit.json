@@ -1,0 +1,227 @@
+[
+  {
+    "id": 1,
+    "order_id": 1,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 50
+    },
+    "created_at": "2026-06-14 17:13:17",
+    "order_no": "TR20260615011317022",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 2,
+    "order_id": 1,
+    "action": "submit_reserve",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 1,
+      "expires_at": "2026-06-15T01:43:17.076717",
+      "quantity": 50
+    },
+    "created_at": "2026-06-14 17:13:17",
+    "order_no": "TR20260615011317022",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 3,
+    "order_id": 1,
+    "action": "reservation_expired",
+    "operator_id": 0,
+    "details": {
+      "reservation_id": 1,
+      "quantity": 50,
+      "expired_at": "2020-01-01T00:00:00.000000",
+      "released_at": "2026-06-15T01:13:17.202219",
+      "reason": "manual_cleanup"
+    },
+    "created_at": "2026-06-14 17:13:17",
+    "order_no": "TR20260615011317022",
+    "username": "system",
+    "role": "system"
+  },
+  {
+    "id": 4,
+    "order_id": 2,
+    "action": "create_draft",
+    "operator_id": 2,
+    "details": {
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 17:13:17",
+    "order_no": "TR20260615011317308",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 5,
+    "order_id": 2,
+    "action": "submit_reserve",
+    "operator_id": 2,
+    "details": {
+      "reservation_id": 2,
+      "expires_at": "2026-06-15T01:43:17.360023",
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 17:13:17",
+    "order_no": "TR20260615011317308",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 6,
+    "order_id": 2,
+    "action": "reservation_expired",
+    "operator_id": 0,
+    "details": {
+      "reservation_id": 2,
+      "quantity": 10,
+      "expired_at": "2020-01-01T00:00:00.000000",
+      "released_at": "2026-06-15T01:13:17.450768",
+      "reason": "approve_check"
+    },
+    "created_at": "2026-06-14 17:13:17",
+    "order_no": "TR20260615011317308",
+    "username": "system",
+    "role": "system"
+  },
+  {
+    "id": 7,
+    "order_id": 3,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 17:15:43",
+    "order_no": "TR20260615011543593",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 8,
+    "order_id": 3,
+    "action": "submit_reserve",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 3,
+      "expires_at": "2026-06-15T01:45:43.645141",
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 17:15:43",
+    "order_no": "TR20260615011543593",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 11,
+    "order_id": 3,
+    "action": "reservation_expired",
+    "operator_id": 0,
+    "details": {
+      "reservation_id": 3,
+      "quantity": 10,
+      "expired_at": "2020-01-01T00:00:00.000000",
+      "released_at": "2026-06-15T01:35:16.112393",
+      "reason": "startup_cleanup"
+    },
+    "created_at": "2026-06-14 17:35:16",
+    "order_no": "TR20260615011543593",
+    "username": "system",
+    "role": "system"
+  },
+  {
+    "id": 12,
+    "order_id": 4,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 50
+    },
+    "created_at": "2026-06-14 17:44:08",
+    "order_no": "TR20260615014408347",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 13,
+    "order_id": 4,
+    "action": "submit_reserve",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 4,
+      "expires_at": "2026-06-15T02:14:08.455175",
+      "quantity": 50
+    },
+    "created_at": "2026-06-14 17:44:08",
+    "order_no": "TR20260615014408347",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 14,
+    "order_id": 4,
+    "action": "reservation_expired",
+    "operator_id": 0,
+    "details": {
+      "reservation_id": 4,
+      "quantity": 50,
+      "expired_at": "2020-01-01T00:00:00.000000",
+      "released_at": "2026-06-15T01:44:08.607402",
+      "reason": "manual_cleanup"
+    },
+    "created_at": "2026-06-14 17:44:08",
+    "order_no": "TR20260615014408347",
+    "username": "system",
+    "role": "system"
+  },
+  {
+    "id": 15,
+    "order_id": 5,
+    "action": "create_draft",
+    "operator_id": 2,
+    "details": {
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 17:44:08",
+    "order_no": "TR20260615014408657",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 16,
+    "order_id": 5,
+    "action": "submit_reserve",
+    "operator_id": 2,
+    "details": {
+      "reservation_id": 5,
+      "expires_at": "2026-06-15T02:14:08.689032",
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 17:44:08",
+    "order_no": "TR20260615014408657",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 17,
+    "order_id": 5,
+    "action": "reservation_expired",
+    "operator_id": 0,
+    "details": {
+      "reservation_id": 5,
+      "quantity": 10,
+      "expired_at": "2020-01-01T00:00:00.000000",
+      "released_at": "2026-06-15T01:44:08.756767",
+      "reason": "approve_check"
+    },
+    "created_at": "2026-06-14 17:44:08",
+    "order_no": "TR20260615014408657",
+    "username": "system",
+    "role": "system"
+  }
+]
