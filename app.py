@@ -202,10 +202,15 @@ def release_expired_reservations(db, reason='system'):
 
     count = 0
     for r in rows:
+        cur = db.execute('UPDATE reservations SET is_released = 1 '
+                         'WHERE id = ? AND is_released = 0',
+                         (r['id'],))
+        if cur.rowcount != 1:
+            continue
+
         db.execute('UPDATE inventory SET reserved_quantity = reserved_quantity - ? '
                    'WHERE warehouse_id = ? AND material_id = ?',
                    (r['quantity'], r['warehouse_id'], r['material_id']))
-        db.execute('UPDATE reservations SET is_released = 1 WHERE id = ?', (r['id'],))
         db.execute('UPDATE transfer_orders SET status = ?, reservation_id = NULL, updated_at = ? '
                    'WHERE id = ?', ('expired', datetime.now().isoformat(), r['order_id']))
         db.execute('''INSERT INTO audit_logs (order_id, action, operator_id, details)
@@ -221,6 +226,7 @@ def release_expired_reservations(db, reason='system'):
     return count
 
 def expire_reservations_worker():
+    time.sleep(3)
     while True:
         try:
             conn = sqlite3.connect(DATABASE)
