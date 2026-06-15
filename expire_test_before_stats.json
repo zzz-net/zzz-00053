@@ -1,17 +1,17 @@
 {
   "approved_count": 0,
-  "audit_log_count": 6,
+  "audit_log_count": 8,
   "completed_count": 0,
   "config": {
     "config_fallback": false,
-    "config_source": "env",
+    "config_source": "default",
     "default_reservation_expire_minutes": 30,
     "reservation_expire_minutes": 30
   },
   "draft_count": 0,
   "expired_count": 2,
   "rejected_count": 0,
-  "reserved_count": 0,
+  "reserved_count": 1,
   "submitted_count": 0,
   "withdrawn_count": 0
 }

@@ -13,21 +13,24 @@ DEFAULT_RESERVATION_EXPIRE_MINUTES = 30
 def load_reservation_expire_minutes():
     raw = os.environ.get('RESERVATION_EXPIRE_MINUTES')
     if raw is None or raw.strip() == '':
-        print(f'[Config] RESERVATION_EXPIRE_MINUTES 未设置，使用默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟')
-        return DEFAULT_RESERVATION_EXPIRE_MINUTES, False
+        source = 'default'
+        print(f'[Config] RESERVATION_EXPIRE_MINUTES 未设置，使用默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟 (source={source})', flush=True)
+        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, False
     try:
         val = int(raw)
         if val <= 0:
-            print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 为非正数，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟')
-            return DEFAULT_RESERVATION_EXPIRE_MINUTES, True
-        print(f'[Config] RESERVATION_EXPIRE_MINUTES 加载成功，生效值 = {val} 分钟')
-        return val, False
+            source = 'default(fallback)'
+            print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 为非正数，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟 (source={source})', flush=True)
+            return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True
+        source = 'env'
+        print(f'[Config] RESERVATION_EXPIRE_MINUTES 加载成功，生效值 = {val} 分钟 (source={source})', flush=True)
+        return val, source, False
     except (ValueError, TypeError):
-        print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 非数字，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟')
-        return DEFAULT_RESERVATION_EXPIRE_MINUTES, True
+        source = 'default(fallback)'
+        print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 非数字，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟 (source={source})', flush=True)
+        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True
 
-RESERVATION_EXPIRE_MINUTES, CONFIG_FALLBACK = load_reservation_expire_minutes()
-CONFIG_SOURCE = 'env' if not CONFIG_FALLBACK else 'default(fallback)'
+RESERVATION_EXPIRE_MINUTES, CONFIG_SOURCE, CONFIG_FALLBACK = load_reservation_expire_minutes()
 
 APP_CONFIG = {
     'reservation_expire_minutes': RESERVATION_EXPIRE_MINUTES,

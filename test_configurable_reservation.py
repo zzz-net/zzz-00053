@@ -4,13 +4,21 @@ import json
 import sqlite3
 import time
 import sys
+import os
 import csv
 import io
+import subprocess
 from datetime import datetime, timedelta
 
 BASE = 'http://127.0.0.1:5000'
 DB = 'emergency_supply.db'
 DEFAULT_EXPIRE_MINUTES = 30
+
+EXPECTED_SOURCE = os.environ.get('TEST_EXPECTED_SOURCE')
+EXPECTED_FALLBACK = os.environ.get('TEST_EXPECTED_FALLBACK', '').lower() == 'true'
+EXPECTED_MINUTES = int(os.environ.get('TEST_EXPECTED_MINUTES', DEFAULT_EXPIRE_MINUTES))
+
+print(f'测试预期: source={EXPECTED_SOURCE}, fallback={EXPECTED_FALLBACK}, minutes={EXPECTED_MINUTES}')
 
 
 def api(path, method='GET', data=None):
@@ -69,8 +77,37 @@ if code == 200:
     check('reservation_expire_minutes > 0',
           isinstance(cfg.get('reservation_expire_minutes'), int) and cfg['reservation_expire_minutes'] > 0)
     effective_minutes = cfg['reservation_expire_minutes']
+    actual_source = cfg.get('config_source')
+    actual_fallback = cfg.get('config_fallback')
     print(f'    当前生效预占过期分钟数: {effective_minutes}')
-    print(f'    配置来源: {cfg.get("config_source")}, 是否回退: {cfg.get("config_fallback")}')
+    print(f'    配置来源: {actual_source}, 是否回退: {actual_fallback}')
+
+    if EXPECTED_SOURCE is not None:
+        check(f'config_source == 预期 "{EXPECTED_SOURCE}"',
+              actual_source == EXPECTED_SOURCE,
+              f'实际={actual_source}, 预期={EXPECTED_SOURCE}')
+    check(f'config_fallback == 预期 {EXPECTED_FALLBACK}',
+          actual_fallback == EXPECTED_FALLBACK,
+          f'实际={actual_fallback}, 预期={EXPECTED_FALLBACK}')
+    check(f'reservation_expire_minutes == 预期 {EXPECTED_MINUTES}',
+          effective_minutes == EXPECTED_MINUTES,
+          f'实际={effective_minutes}, 预期={EXPECTED_MINUTES}')
+
+    check('三种 source 取值互斥且合法',
+          actual_source in ('env', 'default', 'default(fallback)'),
+          f'实际 source={actual_source}')
+    if actual_source == 'env':
+        check('env 来源时 fallback 必为 False',
+              actual_fallback == False,
+              f'source=env 但 fallback={actual_fallback}')
+    if actual_source == 'default':
+        check('default 来源时 fallback 必为 False',
+              actual_fallback == False,
+              f'source=default 但 fallback={actual_fallback}')
+    if actual_source == 'default(fallback)':
+        check('default(fallback) 来源时 fallback 必为 True',
+              actual_fallback == True,
+              f'source=default(fallback) 但 fallback={actual_fallback}')
 
 print('\n--- 2. /api/stats 接口中包含 config ---')
 code, stats = api('/api/stats')
