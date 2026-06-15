@@ -8,40 +8,18 @@ import os
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, g, Response
 
-from config_diagnostic import ConfigDiagnostic
+from config_snapshot_playback import ConfigSnapshotPlayback, DEFAULT_SNAPSHOT_DB, DEFAULT_LOG_FILE
 
 DATABASE = 'emergency_supply.db'
 DEFAULT_RESERVATION_EXPIRE_MINUTES = 30
 
-CONFIG_DIAGNOSTIC = ConfigDiagnostic()
+CSP = ConfigSnapshotPlayback(
+    snapshot_db=DEFAULT_SNAPSHOT_DB,
+    log_file=DEFAULT_LOG_FILE,
+)
+CSP.start_boot_snapshot()
 
-def load_reservation_expire_minutes():
-    raw = os.environ.get('RESERVATION_EXPIRE_MINUTES')
-    if raw is None or raw.strip() == '':
-        source = 'default'
-        explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES 未设置，采用内置默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟'
-        print(f'[Config] {explanation} (source={source})', flush=True)
-        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, False, raw, explanation
-    try:
-        val = int(raw)
-        if val <= 0:
-            source = 'default(fallback)'
-            explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES={raw!r} 为非正数，自动回退到内置默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟'
-            print(f'[Config] {explanation} (source={source})', flush=True)
-            return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True, raw, explanation
-        source = 'env'
-        explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES={raw!r} 显式配置，生效值 = {val} 分钟'
-        print(f'[Config] {explanation} (source={source})', flush=True)
-        return val, source, False, raw, explanation
-    except (ValueError, TypeError):
-        source = 'default(fallback)'
-        explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES={raw!r} 非法(非整数)，自动回退到内置默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟'
-        print(f'[Config] {explanation} (source={source})', flush=True)
-        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True, raw, explanation
-
-RESERVATION_EXPIRE_MINUTES, CONFIG_SOURCE, CONFIG_FALLBACK, CONFIG_RAW_ENV, CONFIG_RESOLUTION = load_reservation_expire_minutes()
-
-CONFIG_RESOLUTION_DIAG = CONFIG_DIAGNOSTIC.resolve_config(
+RESOLUTION_SNAP = CSP.resolve_config(
     key='reservation_expire_minutes',
     default_value=DEFAULT_RESERVATION_EXPIRE_MINUTES,
     env_key='RESERVATION_EXPIRE_MINUTES',
@@ -50,21 +28,11 @@ CONFIG_RESOLUTION_DIAG = CONFIG_DIAGNOSTIC.resolve_config(
     validator=lambda v: v > 0,
 )
 
-APP_CONFIG = {
-    'reservation_expire_minutes': RESERVATION_EXPIRE_MINUTES,
-    'default_reservation_expire_minutes': DEFAULT_RESERVATION_EXPIRE_MINUTES,
-    'config_source': CONFIG_SOURCE,
-    'config_fallback': CONFIG_FALLBACK,
-    'raw_env_value': CONFIG_RAW_ENV,
-    'raw_config_value': CONFIG_RESOLUTION_DIAG.raw_config_value,
-    'loaded_at': CONFIG_RESOLUTION_DIAG.loaded_at,
-    'resolution_explanation': CONFIG_RESOLUTION,
-    'conflict_detected': CONFIG_RESOLUTION_DIAG.conflict_detected,
-    'conflict_details': CONFIG_RESOLUTION_DIAG.conflict_details,
-    'fallback_reason': CONFIG_RESOLUTION_DIAG.fallback_reason,
-    'boot_sequence': CONFIG_DIAGNOSTIC._boot_sequence,
-    'process_id': CONFIG_DIAGNOSTIC._process_id,
-}
+RESERVATION_EXPIRE_MINUTES = RESOLUTION_SNAP.effective_value
+
+CSP.finish_boot_snapshot()
+
+APP_CONFIG = RESOLUTION_SNAP.to_dict()
 
 app = Flask(__name__)
 
@@ -172,17 +140,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_reservations_expires ON reservations(expires_at, is_released);
         CREATE INDEX IF NOT EXISTS idx_audit_order ON audit_logs(order_id);
         CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
-
-        CREATE TABLE IF NOT EXISTS config_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            loaded_at TIMESTAMP NOT NULL,
-            raw_env_value TEXT,
-            effective_minutes INTEGER NOT NULL,
-            default_minutes INTEGER NOT NULL,
-            source TEXT NOT NULL,
-            fallback INTEGER NOT NULL DEFAULT 0,
-            resolution_explanation TEXT NOT NULL
-        );
     ''')
 
     try:
@@ -249,15 +206,6 @@ def log_audit(db, order_id, action, operator_id, details=None):
     db.execute('''INSERT INTO audit_logs (order_id, action, operator_id, details)
                   VALUES (?, ?, ?, ?)''',
                (order_id, action, operator_id, json.dumps(details, ensure_ascii=False) if details else None))
-
-def insert_config_snapshot(db):
-    db.execute('''INSERT INTO config_snapshots
-                  (loaded_at, raw_env_value, effective_minutes, default_minutes, source, fallback, resolution_explanation)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)''',
-               (APP_CONFIG['loaded_at'], APP_CONFIG['raw_env_value'],
-                APP_CONFIG['reservation_expire_minutes'], APP_CONFIG['default_reservation_expire_minutes'],
-                APP_CONFIG['config_source'], int(APP_CONFIG['config_fallback']),
-                APP_CONFIG['resolution_explanation']))
 
 def check_user_role(db, user_id, required_role):
     user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
@@ -447,7 +395,7 @@ def submit_order(order_id):
         'expires_at': expires_at,
         'quantity': order['quantity'],
         'config_expire_minutes': RESERVATION_EXPIRE_MINUTES,
-        'config_source': CONFIG_SOURCE
+        'config_source': APP_CONFIG['effective_source']
     })
     db.commit()
 
@@ -784,15 +732,9 @@ def diagnose_config():
     db = get_db()
     now_iso = datetime.now().isoformat()
 
-    latest_snapshot_row = db.execute(
-        'SELECT * FROM config_snapshots ORDER BY id DESC LIMIT 1'
-    ).fetchone()
-    latest_snapshot = row_to_dict(latest_snapshot_row) if latest_snapshot_row else None
-
-    all_snapshots_rows = db.execute(
-        'SELECT * FROM config_snapshots ORDER BY id'
-    ).fetchall()
-    all_snapshots = [row_to_dict(r) for r in all_snapshots_rows]
+    latest_snapshot = CSP.get_latest_snapshot('reservation_expire_minutes')
+    all_snaps = CSP.get_all_snapshots('reservation_expire_minutes', limit=100)
+    boot_seqs = CSP.list_boot_sequences()
 
     active_reservations = db.execute('''
         SELECT r.id, r.order_id, r.expires_at, r.config_expire_minutes, r.created_at,
@@ -835,10 +777,17 @@ def diagnose_config():
         WHERE r.is_released = 0 AND r.expires_at <= ? AND o.status = 'reserved'
     ''', (now_iso,)).fetchall()
 
+    playback_conclusion = None
+    if boot_seqs:
+        pc = CSP.playback_boot(boot_seqs[0]['boot_sequence'])
+        playback_conclusion = pc.to_dict()
+
     return jsonify({
         'current_config': APP_CONFIG,
-        'latest_snapshot': latest_snapshot,
-        'all_snapshots': all_snapshots,
+        'latest_snapshot': latest_snapshot.to_dict() if latest_snapshot else None,
+        'all_snapshots': [s.to_dict() for s in all_snaps],
+        'boot_sequences': boot_seqs,
+        'playback_conclusion': playback_conclusion,
         'reservation_alignment': {
             'total_active': len(active_reservations),
             'aligned_with_config': aligned_count,
@@ -864,12 +813,16 @@ def get_stats():
 @app.route('/api/config/v2', methods=['GET'])
 def get_config_v2():
     key = request.args.get('key')
-    return jsonify(CONFIG_DIAGNOSTIC.get_current_config_dict(key))
+    if key:
+        snap = CSP.get_latest_snapshot(key)
+        return jsonify(snap.to_dict() if snap else None)
+    snaps = CSP.get_all_snapshots(limit=1000)
+    return jsonify([s.to_dict() for s in snaps])
 
 @app.route('/api/config/v2/diagnose', methods=['GET'])
 def diagnose_config_v2():
     key = request.args.get('key')
-    return jsonify(CONFIG_DIAGNOSTIC.diagnose(key))
+    return jsonify(CSP.diagnose(key))
 
 @app.route('/api/config/v2/snapshots', methods=['GET'])
 def list_snapshots_v2():
@@ -879,13 +832,16 @@ def list_snapshots_v2():
     latest = request.args.get('latest', 'false').lower() == 'true'
 
     if latest:
-        snap = CONFIG_DIAGNOSTIC.get_latest_snapshot(key)
+        snap = CSP.get_latest_snapshot(key)
         return jsonify(snap.to_dict() if snap else None)
     elif boot is not None:
-        snaps = CONFIG_DIAGNOSTIC.get_snapshots_by_boot(boot)
+        boot_snap = CSP.get_boot_snapshot(boot)
+        if boot_snap:
+            return jsonify([s.to_dict() for s in boot_snap.config_items.values()])
+        return jsonify([])
     else:
-        snaps = CONFIG_DIAGNOSTIC.get_all_snapshots(key, limit)
-    return jsonify([s.to_dict() for s in snaps])
+        snaps = CSP.get_all_snapshots(key, limit)
+        return jsonify([s.to_dict() for s in snaps])
 
 @app.route('/api/config/v2/snapshots/compare', methods=['GET'])
 def compare_snapshots_v2():
@@ -893,14 +849,51 @@ def compare_snapshots_v2():
     uuid2 = request.args.get('uuid2')
     if not uuid1 or not uuid2:
         return jsonify({'error': '需要提供 uuid1 和 uuid2 参数'}), 400
-    return jsonify(CONFIG_DIAGNOSTIC.compare_snapshots(uuid1, uuid2))
+    return jsonify(CSP.compare_snapshots(uuid1, uuid2))
+
+@app.route('/api/config/v2/boot', methods=['GET'])
+def list_boots_v2():
+    boots = CSP.list_boot_sequences()
+    return jsonify(boots)
+
+@app.route('/api/config/v2/boot/<int:boot_seq>', methods=['GET'])
+def get_boot_v2(boot_seq):
+    boot = CSP.get_boot_snapshot(boot_seq)
+    if not boot:
+        return jsonify({'error': f'启动批次 {boot_seq} 不存在'}), 404
+    return jsonify(boot.to_dict())
+
+@app.route('/api/config/v2/boot/compare', methods=['GET'])
+def compare_boots_v2():
+    b1 = request.args.get('boot1', type=int)
+    b2 = request.args.get('boot2', type=int)
+    if not b1 or not b2:
+        return jsonify({'error': '需要提供 boot1 和 boot2 参数'}), 400
+    return jsonify(CSP.compare_boots(b1, b2))
+
+@app.route('/api/config/v2/playback', methods=['GET'])
+def playback_v2():
+    boot = request.args.get('boot', type=int)
+    if boot is None:
+        boots = CSP.list_boot_sequences()
+        if not boots:
+            return jsonify({'error': '没有可回放的启动批次'}), 404
+        boot = boots[0]['boot_sequence']
+    conclusion = CSP.playback_boot(boot)
+    return jsonify(conclusion.to_dict())
+
+@app.route('/api/config/v2/verify', methods=['GET'])
+def verify_v2():
+    boot = request.args.get('boot', type=int)
+    return jsonify(CSP.verify_round_trip(boot))
 
 @app.route('/api/config/v2/snapshots/export.<fmt>', methods=['GET'])
 def export_snapshots_v2(fmt):
     if fmt not in ('json', 'csv'):
         return jsonify({'error': '仅支持 json 或 csv 格式'}), 400
     key = request.args.get('key')
-    content = CONFIG_DIAGNOSTIC.export_snapshots(fmt=fmt, key=key)
+    boot = request.args.get('boot', type=int)
+    content = CSP.export_snapshots(fmt=fmt, key=key, boot_sequence=boot)
 
     if fmt == 'json':
         return Response(
@@ -927,8 +920,8 @@ def import_snapshots_v2():
         tmp_path = tmp.name
 
     try:
-        count = CONFIG_DIAGNOSTIC.import_snapshots(tmp_path)
-        return jsonify({'imported': count, 'message': f'成功导入 {count} 条快照'})
+        result = CSP.import_snapshots(tmp_path)
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -939,9 +932,8 @@ if __name__ == '__main__':
     startup_conn = sqlite3.connect(DATABASE)
     startup_conn.row_factory = sqlite3.Row
     startup_conn.execute('PRAGMA foreign_keys = ON')
-    insert_config_snapshot(startup_conn)
     startup_conn.commit()
-    print(f'[Config] 配置快照已写入 config_snapshots 表 (loaded_at={APP_CONFIG["loaded_at"]})', flush=True)
+    print(f'[Config] 配置快照已记录 (boot_sequence={APP_CONFIG["boot_sequence"]}, source={APP_CONFIG["effective_source"]})', flush=True)
     before_count = startup_conn.execute(
         "SELECT COUNT(*) FROM reservations r JOIN transfer_orders o ON r.order_id = o.id "
         "WHERE r.is_released = 0 AND o.status = 'reserved'"

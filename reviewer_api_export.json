@@ -1,0 +1,95 @@
+{
+  "export_format_version": "3.0",
+  "exported_at": "2026-06-15T16:13:43.131123",
+  "export_source": "ConfigSnapshotPlayback",
+  "total_snapshots": 1,
+  "boot_sequences": [
+    {
+      "boot_sequence": 1,
+      "boot_at": "2026-06-15T16:11:26.862852",
+      "process_id": 30436,
+      "item_count": 1,
+      "summary": {
+        "total_items": 1,
+        "fallback_count": 0,
+        "conflict_count": 0,
+        "source_distribution": {
+          "default": 1
+        },
+        "boot_status": "normal"
+      }
+    }
+  ],
+  "playback_conclusions": {
+    "1": {
+      "playback_at": "2026-06-15T16:11:42.948621",
+      "total_items": 1,
+      "fallback_count": 0,
+      "conflict_count": 0,
+      "missing_count": 1,
+      "dirty_value_count": 0,
+      "changes_from_previous": [],
+      "source_distribution": {
+        "default": 1
+      },
+      "overall_status": "normal",
+      "summary_text": "启动批次 1 共有 1 项配置，全部正常。",
+      "detailed_findings": [],
+      "recommendations": [
+        "1 个配置项使用默认值，建议显式配置以提高可维护性"
+      ]
+    }
+  },
+  "snapshots": [
+    {
+      "snapshot_uuid": "a8fb692c-1d01-48f3-8be5-18cb76f4f330",
+      "snapshot_at": "2026-06-15T16:11:26.862852",
+      "config_key": "reservation_expire_minutes",
+      "effective_value": "30",
+      "effective_source": "default",
+      "is_fallback": false,
+      "fallback_reason": null,
+      "default_value": "30",
+      "raw_env_value": null,
+      "raw_config_value": null,
+      "resolution_chain": [
+        {
+          "source_name": "config_file",
+          "priority": 1,
+          "raw_value": null,
+          "parsed_value": null,
+          "is_available": false,
+          "is_valid": false,
+          "error_message": null
+        },
+        {
+          "source_name": "env",
+          "priority": 2,
+          "raw_value": null,
+          "parsed_value": null,
+          "is_available": false,
+          "is_valid": false,
+          "error_message": null
+        },
+        {
+          "source_name": "default",
+          "priority": 99,
+          "raw_value": "30",
+          "parsed_value": "30",
+          "is_available": true,
+          "is_valid": true,
+          "error_message": null
+        }
+      ],
+      "conflict_detected": false,
+      "conflict_details": null,
+      "resolution_explanation": "采用内置默认值 30",
+      "loaded_at": "2026-06-15T16:11:26.862852",
+      "boot_sequence": 1,
+      "process_id": 30436,
+      "diagnostic_notes": [],
+      "integrity_hash": "fbdc8219fd5bc9e7"
+    }
+  ],
+  "integrity_root_hash": "96e4e4407717a5a32429eda3722e6fb5f5e3e4cdab594e8389aef68c41938521"
+}

@@ -352,13 +352,18 @@ def cmd_verify(args, csp: ConfigSnapshotPlayback):
     print(f"  JSON 导入数: {result['json_imported']}")
     print(f"  CSV 导入数: {result['csv_imported']}")
     print(f"  JSON 往返一致: {result['json_round_trip_ok']}")
+    print(f"  CSV 启动批次一致: {result.get('csv_boot_sequence_match', 'N/A')}")
+    print(f"  CSV 回退标记一致: {result.get('csv_fallback_match', 'N/A')}")
+    print(f"  CSV 回退原因一致: {result.get('csv_fallback_reason_match', 'N/A')}")
+    print(f"  CSV 来源一致: {result.get('csv_source_match', 'N/A')}")
     print(f"  CSV 基础字段一致: {result['csv_basic_fields_ok']}")
+    print(f"  回放结论一致: {result.get('playback_conclusion_match', 'N/A')}")
 
     if result.get('details'):
         print(f"\n  详细信息:")
         print_dict(result['details'], indent=2)
 
-    if result['json_round_trip_ok'] and result['csv_basic_fields_ok']:
+    if result['json_round_trip_ok'] and result['csv_basic_fields_ok'] and result.get('playback_conclusion_match', True):
         print(f"\n  [PASS] 往返一致性验证通过")
     else:
         print(f"\n  [FAIL] 往返一致性验证失败")
@@ -508,9 +513,16 @@ def main():
         log_file=args.log_file,
         config_file=args.config_file,
     )
-    csp.start_boot_snapshot()
+
+    is_resolve = args.command == 'resolve'
+
+    if is_resolve:
+        csp.start_boot_snapshot()
 
     args.func(args, csp)
+
+    if is_resolve:
+        csp.finish_boot_snapshot()
 
 
 if __name__ == '__main__':

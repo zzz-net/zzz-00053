@@ -122,14 +122,14 @@ class ConfigValueSnapshot:
         snap.config_key = d.get('config_key', '')
         snap.effective_value = _try_parse_value(d.get('effective_value'))
         snap.effective_source = d.get('effective_source', '')
-        snap.is_fallback = bool(d.get('is_fallback', False))
-        snap.fallback_reason = d.get('fallback_reason')
+        snap.is_fallback = _to_bool(d.get('is_fallback', False))
+        snap.fallback_reason = d.get('fallback_reason') or None
         snap.default_value = _try_parse_value(d.get('default_value'))
-        snap.raw_env_value = d.get('raw_env_value')
-        snap.raw_config_value = d.get('raw_config_value')
+        snap.raw_env_value = d.get('raw_env_value') or None
+        snap.raw_config_value = d.get('raw_config_value') or None
         snap.resolution_chain = [SourceEvaluation.from_dict(s) for s in d.get('resolution_chain', [])]
-        snap.conflict_detected = bool(d.get('conflict_detected', False))
-        snap.conflict_details = d.get('conflict_details')
+        snap.conflict_detected = _to_bool(d.get('conflict_detected', False))
+        snap.conflict_details = d.get('conflict_details') or None
         snap.resolution_explanation = d.get('resolution_explanation', '')
         snap.loaded_at = d.get('loaded_at', datetime.now().isoformat())
         snap.boot_sequence = int(d.get('boot_sequence', 0))
@@ -156,6 +156,16 @@ def _try_parse_value(val: Optional[str]) -> Any:
             if val.lower() == 'none' or val.lower() == 'null':
                 return None
             return val
+
+
+def _to_bool(val) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, int):
+        return val != 0
+    if isinstance(val, str):
+        return val.lower() in ('1', 'true', 'yes')
+    return bool(val)
 
 
 @dataclass
@@ -690,12 +700,12 @@ class ConfigSnapshotPlayback:
         snap.config_key = row['config_key']
         snap.effective_value = _try_parse_value(row['effective_value'])
         snap.effective_source = row['effective_source']
-        snap.is_fallback = bool(row['is_fallback'])
+        snap.is_fallback = _to_bool(row['is_fallback'])
         snap.fallback_reason = row['fallback_reason']
         snap.default_value = _try_parse_value(row['default_value'])
         snap.raw_env_value = row['raw_env_value']
         snap.raw_config_value = row['raw_config_value']
-        snap.conflict_detected = bool(row['conflict_detected'])
+        snap.conflict_detected = _to_bool(row['conflict_detected'])
         snap.conflict_details = row['conflict_details']
         snap.resolution_explanation = row['resolution_explanation']
         snap.loaded_at = row['loaded_at']
@@ -916,6 +926,13 @@ class ConfigSnapshotPlayback:
                     f'原因: {snap.fallback_reason}'
                 )
 
+            has_dirty_raw = (
+                (snap.raw_env_value is not None and snap.effective_source == 'default(fallback)')
+                or (snap.raw_config_value is not None and snap.effective_source == 'default(fallback)')
+            )
+            if has_dirty_raw:
+                conclusion.dirty_value_count += 1
+
             if snap.conflict_detected:
                 conclusion.conflict_count += 1
                 findings.append(
@@ -935,6 +952,10 @@ class ConfigSnapshotPlayback:
                 comparison = self.compare_boots(prev_boot_seq, boot_sequence)
                 conclusion.changes_from_previous = comparison.get('differences', [])
 
+        if conclusion.dirty_value_count > 0:
+            recommendations.append(
+                f'检查 {conclusion.dirty_value_count} 个脏值配置项，修正原始非法值'
+            )
         if conclusion.fallback_count > 0:
             recommendations.append(
                 f'检查 {conclusion.fallback_count} 个回退配置项的原始值，修复非法值以避免回退'
@@ -955,7 +976,8 @@ class ConfigSnapshotPlayback:
             conclusion.summary_text = (
                 f'启动批次 {boot_sequence} 共有 {conclusion.total_items} 项配置，'
                 f'其中 {conclusion.fallback_count} 项发生回退，'
-                f'{conclusion.conflict_count} 项存在冲突。'
+                f'{conclusion.conflict_count} 项存在冲突，'
+                f'{conclusion.dirty_value_count} 项存在脏值。'
             )
         else:
             conclusion.overall_status = 'normal'
@@ -1018,12 +1040,30 @@ class ConfigSnapshotPlayback:
         boot_list = self.list_boot_sequences()
 
         if fmt == 'json':
+            playback_conclusions = {}
+            for bl in boot_list:
+                bs = bl['boot_sequence']
+                try:
+                    conn = self._get_conn()
+                    c = conn.cursor()
+                    c.execute(
+                        'SELECT result_json FROM playback_results WHERE boot_sequence = ? ORDER BY id DESC LIMIT 1',
+                        (bs,)
+                    )
+                    row = c.fetchone()
+                    self._close_conn(conn)
+                    if row:
+                        playback_conclusions[str(bs)] = json.loads(row['result_json'])
+                except Exception:
+                    pass
+
             export_data = {
-                'export_format_version': '2.0',
+                'export_format_version': '3.0',
                 'exported_at': datetime.now().isoformat(),
                 'export_source': 'ConfigSnapshotPlayback',
                 'total_snapshots': len(snapshots),
                 'boot_sequences': boot_list,
+                'playback_conclusions': playback_conclusions,
                 'snapshots': [s.to_dict() for s in snapshots],
                 'integrity_root_hash': self._compute_root_hash(snapshots),
             }
@@ -1037,6 +1077,7 @@ class ConfigSnapshotPlayback:
                 'raw_env_value', 'raw_config_value', 'conflict_detected', 'conflict_details',
                 'resolution_explanation', 'loaded_at', 'boot_sequence', 'process_id',
                 'resolution_chain_count', 'diagnostic_notes_count', 'integrity_hash',
+                'diagnostic_notes',
             ]
             writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
             writer.writeheader()
@@ -1044,6 +1085,7 @@ class ConfigSnapshotPlayback:
                 d = s.to_dict()
                 d['resolution_chain_count'] = len(s.resolution_chain)
                 d['diagnostic_notes_count'] = len(s.diagnostic_notes)
+                d['diagnostic_notes'] = '; '.join(s.diagnostic_notes) if s.diagnostic_notes else ''
                 writer.writerow({k: v if v is not None else '' for k, v in d.items()})
             return output.getvalue()
 
@@ -1092,17 +1134,21 @@ class ConfigSnapshotPlayback:
                 if filepath.endswith('.json'):
                     data = json.load(f)
                     snapshots_data = data.get('snapshots', data if isinstance(data, list) else [])
+                    playback_conclusions_data = data.get('playback_conclusions', {})
                 elif filepath.endswith('.csv'):
                     reader = csv.DictReader(f)
                     snapshots_data = list(reader)
+                    playback_conclusions_data = {}
                 else:
                     try:
                         data = json.load(f)
                         snapshots_data = data.get('snapshots', data if isinstance(data, list) else [])
+                        playback_conclusions_data = data.get('playback_conclusions', {})
                     except Exception:
                         f.seek(0)
                         reader = csv.DictReader(f)
                         snapshots_data = list(reader)
+                        playback_conclusions_data = {}
 
             conn = self._get_conn()
             c = conn.cursor()
@@ -1162,23 +1208,66 @@ class ConfigSnapshotPlayback:
 
             for boot_seq in result['boot_sequences_imported']:
                 try:
-                    boot_snaps = []
                     c.execute(
                         'SELECT * FROM config_snapshots WHERE boot_sequence = ?',
                         (boot_seq,)
                     )
-                    for row in c.fetchall():
-                        pass
+                    boot_snap_rows = c.fetchall()
+                    boot_item_count = len(boot_snap_rows)
+
+                    fallback_count = 0
+                    conflict_count = 0
+                    source_dist = {}
+                    boot_at = datetime.now().isoformat()
+                    process_id = 0
+
+                    for row in boot_snap_rows:
+                        if bool(row['is_fallback']):
+                            fallback_count += 1
+                        if bool(row['conflict_detected']):
+                            conflict_count += 1
+                        src = row['effective_source']
+                        source_dist[src] = source_dist.get(src, 0) + 1
+                        snap_at = row['snapshot_at']
+                        if snap_at and snap_at < boot_at:
+                            boot_at = snap_at
+                        pid = row['process_id']
+                        if pid:
+                            process_id = pid
+
+                    summary = {
+                        'total_items': boot_item_count,
+                        'fallback_count': fallback_count,
+                        'conflict_count': conflict_count,
+                        'source_distribution': source_dist,
+                        'boot_status': 'warning' if fallback_count > 0 or conflict_count > 0 else 'normal',
+                        'imported': True,
+                    }
+
                     c.execute('''
                         INSERT OR REPLACE INTO boot_records (
                             boot_sequence, boot_at, process_id, item_count, summary_json
                         ) VALUES (?, ?, ?, ?, ?)
                     ''', (
                         boot_seq,
-                        datetime.now().isoformat(),
-                        0,
-                        0,
-                        json.dumps({'imported': True}, ensure_ascii=False),
+                        boot_at,
+                        process_id,
+                        boot_item_count,
+                        json.dumps(summary, ensure_ascii=False),
+                    ))
+                except Exception:
+                    pass
+
+            for boot_seq_str, pc_data in playback_conclusions_data.items():
+                try:
+                    boot_seq_int = int(boot_seq_str)
+                    c.execute('''
+                        INSERT INTO playback_results (playback_at, boot_sequence, result_json)
+                        VALUES (?, ?, ?)
+                    ''', (
+                        pc_data.get('playback_at', datetime.now().isoformat()),
+                        boot_seq_int,
+                        json.dumps(pc_data, ensure_ascii=False),
                     ))
                 except Exception:
                     pass
@@ -1188,7 +1277,8 @@ class ConfigSnapshotPlayback:
 
             self.logger.info(
                 f'快照导入完成: 成功 {result["imported"]} 条, '
-                f'跳过 {result["skipped"]} 条, 失败 {result["failed"]} 条'
+                f'跳过 {result["skipped"]} 条, 失败 {result["failed"]} 条, '
+                f'回放结论 {len(playback_conclusions_data)} 条'
             )
 
             return result
@@ -1222,31 +1312,58 @@ class ConfigSnapshotPlayback:
         csv_verify = ConfigSnapshotPlayback(snapshot_db=':memory:', log_file=':memory:')
         csv_result = csv_verify.import_snapshots(csv_tmp.name)
         csv_snaps = csv_verify.get_all_snapshots(limit=10000)
-        csv_hashes = {s.snapshot_uuid: s._compute_hash() for s in csv_snaps}
-
-        os.unlink(json_tmp.name)
-        os.unlink(csv_tmp.name)
 
         json_match = all(
             original_hashes.get(uuid) == h for uuid, h in json_hashes.items()
         ) and len(json_hashes) == len(original_hashes)
 
-        csv_fields_match = all(
-            s.effective_value == _try_parse_value(original_snap_dict.get('effective_value'))
-            for s in csv_snaps
-            for original_snap_dict in [snap.to_dict() for snap in original_snaps]
-            if s.config_key == original_snap_dict.get('config_key')
-        )
+        csv_boot_seq_match = True
+        csv_fallback_match = True
+        csv_reason_match = True
+        csv_source_match = True
+        for cs in csv_snaps:
+            orig = next((s for s in original_snaps if s.snapshot_uuid == cs.snapshot_uuid), None)
+            if orig:
+                if cs.boot_sequence != orig.boot_sequence:
+                    csv_boot_seq_match = False
+                if cs.is_fallback != orig.is_fallback:
+                    csv_fallback_match = False
+                if cs.fallback_reason != orig.fallback_reason:
+                    csv_reason_match = False
+                if cs.effective_source != orig.effective_source:
+                    csv_source_match = False
+
+        playback_conclusion_match = True
+        playback_detail = ''
+        if boot_sequence is not None:
+            original_pc = self.playback_boot(boot_sequence)
+            if json_result.get('boot_sequences_imported'):
+                json_pc = json_verify.playback_boot(boot_sequence)
+                if original_pc.overall_status != json_pc.overall_status:
+                    playback_conclusion_match = False
+                    playback_detail = f'status: {original_pc.overall_status} vs {json_pc.overall_status}'
+                if original_pc.fallback_count != json_pc.fallback_count:
+                    playback_conclusion_match = False
+                    playback_detail = f'fallback: {original_pc.fallback_count} vs {json_pc.fallback_count}'
+
+        os.unlink(json_tmp.name)
+        os.unlink(csv_tmp.name)
 
         return {
             'original_count': len(original_snaps),
             'json_imported': json_result.get('imported', 0),
             'csv_imported': csv_result.get('imported', 0),
             'json_round_trip_ok': json_match,
-            'csv_basic_fields_ok': True,
+            'csv_basic_fields_ok': csv_boot_seq_match and csv_fallback_match and csv_source_match,
+            'csv_boot_sequence_match': csv_boot_seq_match,
+            'csv_fallback_match': csv_fallback_match,
+            'csv_fallback_reason_match': csv_reason_match,
+            'csv_source_match': csv_source_match,
+            'playback_conclusion_match': playback_conclusion_match,
             'details': {
                 'original_hashes_count': len(original_hashes),
                 'json_imported_hashes_count': len(json_hashes),
+                'playback_detail': playback_detail,
             }
         }
 
