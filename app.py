@@ -14,29 +14,36 @@ def load_reservation_expire_minutes():
     raw = os.environ.get('RESERVATION_EXPIRE_MINUTES')
     if raw is None or raw.strip() == '':
         source = 'default'
-        print(f'[Config] RESERVATION_EXPIRE_MINUTES 未设置，使用默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟 (source={source})', flush=True)
-        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, False
+        explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES 未设置，采用内置默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟'
+        print(f'[Config] {explanation} (source={source})', flush=True)
+        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, False, raw, explanation
     try:
         val = int(raw)
         if val <= 0:
             source = 'default(fallback)'
-            print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 为非正数，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟 (source={source})', flush=True)
-            return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True
+            explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES={raw!r} 为非正数，自动回退到内置默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟'
+            print(f'[Config] {explanation} (source={source})', flush=True)
+            return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True, raw, explanation
         source = 'env'
-        print(f'[Config] RESERVATION_EXPIRE_MINUTES 加载成功，生效值 = {val} 分钟 (source={source})', flush=True)
-        return val, source, False
+        explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES={raw!r} 显式配置，生效值 = {val} 分钟'
+        print(f'[Config] {explanation} (source={source})', flush=True)
+        return val, source, False, raw, explanation
     except (ValueError, TypeError):
         source = 'default(fallback)'
-        print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 非数字，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟 (source={source})', flush=True)
-        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True
+        explanation = f'环境变量 RESERVATION_EXPIRE_MINUTES={raw!r} 非法(非整数)，自动回退到内置默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟'
+        print(f'[Config] {explanation} (source={source})', flush=True)
+        return DEFAULT_RESERVATION_EXPIRE_MINUTES, source, True, raw, explanation
 
-RESERVATION_EXPIRE_MINUTES, CONFIG_SOURCE, CONFIG_FALLBACK = load_reservation_expire_minutes()
+RESERVATION_EXPIRE_MINUTES, CONFIG_SOURCE, CONFIG_FALLBACK, CONFIG_RAW_ENV, CONFIG_RESOLUTION = load_reservation_expire_minutes()
 
 APP_CONFIG = {
     'reservation_expire_minutes': RESERVATION_EXPIRE_MINUTES,
     'default_reservation_expire_minutes': DEFAULT_RESERVATION_EXPIRE_MINUTES,
     'config_source': CONFIG_SOURCE,
-    'config_fallback': CONFIG_FALLBACK
+    'config_fallback': CONFIG_FALLBACK,
+    'raw_env_value': CONFIG_RAW_ENV,
+    'loaded_at': datetime.now().isoformat(),
+    'resolution_explanation': CONFIG_RESOLUTION
 }
 
 app = Flask(__name__)
@@ -145,7 +152,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_reservations_expires ON reservations(expires_at, is_released);
         CREATE INDEX IF NOT EXISTS idx_audit_order ON audit_logs(order_id);
         CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+
+        CREATE TABLE IF NOT EXISTS config_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            loaded_at TIMESTAMP NOT NULL,
+            raw_env_value TEXT,
+            effective_minutes INTEGER NOT NULL,
+            default_minutes INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            fallback INTEGER NOT NULL DEFAULT 0,
+            resolution_explanation TEXT NOT NULL
+        );
     ''')
+
+    try:
+        c.execute('ALTER TABLE reservations ADD COLUMN config_expire_minutes INTEGER')
+    except Exception:
+        pass
 
     c.execute('SELECT COUNT(*) FROM users')
     if c.fetchone()[0] == 0:
@@ -206,6 +229,15 @@ def log_audit(db, order_id, action, operator_id, details=None):
     db.execute('''INSERT INTO audit_logs (order_id, action, operator_id, details)
                   VALUES (?, ?, ?, ?)''',
                (order_id, action, operator_id, json.dumps(details, ensure_ascii=False) if details else None))
+
+def insert_config_snapshot(db):
+    db.execute('''INSERT INTO config_snapshots
+                  (loaded_at, raw_env_value, effective_minutes, default_minutes, source, fallback, resolution_explanation)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)''',
+               (APP_CONFIG['loaded_at'], APP_CONFIG['raw_env_value'],
+                APP_CONFIG['reservation_expire_minutes'], APP_CONFIG['default_reservation_expire_minutes'],
+                APP_CONFIG['config_source'], int(APP_CONFIG['config_fallback']),
+                APP_CONFIG['resolution_explanation']))
 
 def check_user_role(db, user_id, required_role):
     user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
@@ -373,11 +405,12 @@ def submit_order(order_id):
         }), 400
 
     expires_at = (datetime.now() + timedelta(minutes=RESERVATION_EXPIRE_MINUTES)).isoformat()
+    now_iso = datetime.now().isoformat()
     cur = db.execute('''INSERT INTO reservations
-        (order_id, warehouse_id, material_id, quantity, expires_at)
-        VALUES (?, ?, ?, ?, ?)''',
+        (order_id, warehouse_id, material_id, quantity, expires_at, config_expire_minutes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)''',
         (order_id, order['source_warehouse_id'], order['material_id'],
-         order['quantity'], expires_at))
+         order['quantity'], expires_at, RESERVATION_EXPIRE_MINUTES, now_iso))
     reservation_id = cur.lastrowid
 
     db.execute('UPDATE inventory SET reserved_quantity = reserved_quantity + ? '
@@ -392,7 +425,9 @@ def submit_order(order_id):
     log_audit(db, order_id, 'submit_reserve', operator_id, {
         'reservation_id': reservation_id,
         'expires_at': expires_at,
-        'quantity': order['quantity']
+        'quantity': order['quantity'],
+        'config_expire_minutes': RESERVATION_EXPIRE_MINUTES,
+        'config_source': CONFIG_SOURCE
     })
     db.commit()
 
@@ -400,7 +435,8 @@ def submit_order(order_id):
         'id': order_id,
         'status': 'reserved',
         'reservation_id': reservation_id,
-        'expires_at': expires_at
+        'expires_at': expires_at,
+        'config_expire_minutes_used': RESERVATION_EXPIRE_MINUTES
     })
 
 @app.route('/api/orders/<int:order_id>/approve', methods=['POST'])
@@ -723,6 +759,76 @@ def manual_cleanup_expired():
 def get_config():
     return jsonify(APP_CONFIG)
 
+@app.route('/api/config/diagnose', methods=['GET'])
+def diagnose_config():
+    db = get_db()
+    now_iso = datetime.now().isoformat()
+
+    latest_snapshot_row = db.execute(
+        'SELECT * FROM config_snapshots ORDER BY id DESC LIMIT 1'
+    ).fetchone()
+    latest_snapshot = row_to_dict(latest_snapshot_row) if latest_snapshot_row else None
+
+    all_snapshots_rows = db.execute(
+        'SELECT * FROM config_snapshots ORDER BY id'
+    ).fetchall()
+    all_snapshots = [row_to_dict(r) for r in all_snapshots_rows]
+
+    active_reservations = db.execute('''
+        SELECT r.id, r.order_id, r.expires_at, r.config_expire_minutes, r.created_at,
+               o.order_no, o.status as order_status
+        FROM reservations r
+        JOIN transfer_orders o ON r.order_id = o.id
+        WHERE r.is_released = 0
+        ORDER BY r.id
+    ''').fetchall()
+
+    alignment_details = []
+    aligned_count = 0
+    misaligned_count = 0
+    for r in active_reservations:
+        d = row_to_dict(r)
+        cfg_min = d.get('config_expire_minutes')
+        if cfg_min is not None and d.get('created_at') and d.get('expires_at'):
+            try:
+                created = datetime.fromisoformat(d['created_at'])
+                expires = datetime.fromisoformat(d['expires_at'])
+                actual_delta_minutes = (expires - created).total_seconds() / 60.0
+                d['actual_delta_minutes'] = round(actual_delta_minutes, 2)
+                d['aligned'] = abs(actual_delta_minutes - cfg_min) < 1.0
+                if d['aligned']:
+                    aligned_count += 1
+                else:
+                    misaligned_count += 1
+            except Exception:
+                d['actual_delta_minutes'] = None
+                d['aligned'] = None
+        else:
+            d['actual_delta_minutes'] = None
+            d['aligned'] = None
+        alignment_details.append(d)
+
+    expired_unreleased = db.execute('''
+        SELECT r.id, r.order_id, r.expires_at, r.config_expire_minutes, o.order_no
+        FROM reservations r
+        JOIN transfer_orders o ON r.order_id = o.id
+        WHERE r.is_released = 0 AND r.expires_at <= ? AND o.status = 'reserved'
+    ''', (now_iso,)).fetchall()
+
+    return jsonify({
+        'current_config': APP_CONFIG,
+        'latest_snapshot': latest_snapshot,
+        'all_snapshots': all_snapshots,
+        'reservation_alignment': {
+            'total_active': len(active_reservations),
+            'aligned_with_config': aligned_count,
+            'misaligned': misaligned_count,
+            'details': alignment_details
+        },
+        'expired_unreleased': [row_to_dict(r) for r in expired_unreleased],
+        'diagnose_at': now_iso
+    })
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     db = get_db()
@@ -740,6 +846,9 @@ if __name__ == '__main__':
     startup_conn = sqlite3.connect(DATABASE)
     startup_conn.row_factory = sqlite3.Row
     startup_conn.execute('PRAGMA foreign_keys = ON')
+    insert_config_snapshot(startup_conn)
+    startup_conn.commit()
+    print(f'[Config] 配置快照已写入 config_snapshots 表 (loaded_at={APP_CONFIG["loaded_at"]})', flush=True)
     before_count = startup_conn.execute(
         "SELECT COUNT(*) FROM reservations r JOIN transfer_orders o ON r.order_id = o.id "
         "WHERE r.is_released = 0 AND o.status = 'reserved'"
