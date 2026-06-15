@@ -1,0 +1,2 @@
+﻿snapshot_uuid,snapshot_at,config_key,effective_value,effective_source,is_fallback,fallback_reason,default_value,raw_env_value,raw_config_value,conflict_detected,conflict_details,resolution_explanation,loaded_at,boot_sequence,process_id,resolution_chain_count,diagnostic_notes_count,integrity_hash,diagnostic_notes
+0e28603a-93e4-4d12-bc89-98121554148d,2026-06-15T16:30:52.189426,reservation_expire_minutes,45,config_file,False,,30,,45,False,,"配置文件 reservation_expire_minutes=""45"" 显式配置，生效值 = 45",2026-06-15T16:30:52.189426,1,24284,3,1,84ca24322644f74b,显式配置生效

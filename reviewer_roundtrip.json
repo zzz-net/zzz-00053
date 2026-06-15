@@ -1,0 +1,78 @@
+﻿{
+  "export_format_version": "3.0",
+  "exported_at": "2026-06-15T16:31:27.230662",
+  "export_source": "ConfigSnapshotPlayback",
+  "total_snapshots": 1,
+  "boot_sequences": [
+    {
+      "boot_sequence": 1,
+      "boot_at": "2026-06-15T16:30:52.184555",
+      "process_id": 24284,
+      "item_count": 1,
+      "summary": {
+        "total_items": 1,
+        "fallback_count": 0,
+        "conflict_count": 0,
+        "source_distribution": {
+          "config_file": 1
+        },
+        "boot_status": "normal"
+      }
+    }
+  ],
+  "playback_conclusions": {},
+  "snapshots": [
+    {
+      "snapshot_uuid": "0e28603a-93e4-4d12-bc89-98121554148d",
+      "snapshot_at": "2026-06-15T16:30:52.189426",
+      "config_key": "reservation_expire_minutes",
+      "effective_value": "45",
+      "effective_source": "config_file",
+      "is_fallback": false,
+      "fallback_reason": null,
+      "default_value": "30",
+      "raw_env_value": null,
+      "raw_config_value": "45",
+      "resolution_chain": [
+        {
+          "source_name": "config_file",
+          "priority": 1,
+          "raw_value": "45",
+          "parsed_value": "45",
+          "is_available": true,
+          "is_valid": true,
+          "error_message": null
+        },
+        {
+          "source_name": "env",
+          "priority": 2,
+          "raw_value": null,
+          "parsed_value": null,
+          "is_available": false,
+          "is_valid": false,
+          "error_message": null
+        },
+        {
+          "source_name": "default",
+          "priority": 99,
+          "raw_value": "30",
+          "parsed_value": "30",
+          "is_available": true,
+          "is_valid": true,
+          "error_message": null
+        }
+      ],
+      "conflict_detected": false,
+      "conflict_details": null,
+      "resolution_explanation": "配置文件 reservation_expire_minutes=\"45\" 显式配置，生效值 = 45",
+      "loaded_at": "2026-06-15T16:30:52.189426",
+      "boot_sequence": 1,
+      "process_id": 24284,
+      "diagnostic_notes": [
+        "显式配置生效"
+      ],
+      "integrity_hash": "84ca24322644f74b"
+    }
+  ],
+  "integrity_root_hash": "c4ead1b128695603a9db666138209abc1759bc42b26fc52d7cf9ee4528037f70"
+}
