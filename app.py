@@ -3,11 +3,38 @@ import json
 import csv
 import time
 import threading
+import os
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, g, Response
 
 DATABASE = 'emergency_supply.db'
-RESERVATION_EXPIRE_MINUTES = 30
+DEFAULT_RESERVATION_EXPIRE_MINUTES = 30
+
+def load_reservation_expire_minutes():
+    raw = os.environ.get('RESERVATION_EXPIRE_MINUTES')
+    if raw is None or raw.strip() == '':
+        print(f'[Config] RESERVATION_EXPIRE_MINUTES 未设置，使用默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟')
+        return DEFAULT_RESERVATION_EXPIRE_MINUTES, False
+    try:
+        val = int(raw)
+        if val <= 0:
+            print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 为非正数，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟')
+            return DEFAULT_RESERVATION_EXPIRE_MINUTES, True
+        print(f'[Config] RESERVATION_EXPIRE_MINUTES 加载成功，生效值 = {val} 分钟')
+        return val, False
+    except (ValueError, TypeError):
+        print(f'[Config] RESERVATION_EXPIRE_MINUTES={raw!r} 非数字，回退默认值 {DEFAULT_RESERVATION_EXPIRE_MINUTES} 分钟')
+        return DEFAULT_RESERVATION_EXPIRE_MINUTES, True
+
+RESERVATION_EXPIRE_MINUTES, CONFIG_FALLBACK = load_reservation_expire_minutes()
+CONFIG_SOURCE = 'env' if not CONFIG_FALLBACK else 'default(fallback)'
+
+APP_CONFIG = {
+    'reservation_expire_minutes': RESERVATION_EXPIRE_MINUTES,
+    'default_reservation_expire_minutes': DEFAULT_RESERVATION_EXPIRE_MINUTES,
+    'config_source': CONFIG_SOURCE,
+    'config_fallback': CONFIG_FALLBACK
+}
 
 app = Flask(__name__)
 
@@ -593,17 +620,21 @@ def get_order(order_id):
                                w2.name as target_warehouse_name,
                                m.name as material_name, m.unit,
                                u1.username as requester_name,
-                               u2.username as approver_name
+                               u2.username as approver_name,
+                               r.expires_at as reservation_expires_at
                         FROM transfer_orders o
                         JOIN warehouses w1 ON o.source_warehouse_id = w1.id
                         JOIN warehouses w2 ON o.target_warehouse_id = w2.id
                         JOIN materials m ON o.material_id = m.id
                         JOIN users u1 ON o.requester_id = u1.id
                         LEFT JOIN users u2 ON o.approver_id = u2.id
+                        LEFT JOIN reservations r ON o.reservation_id = r.id
                         WHERE o.id = ?''', (order_id,)).fetchone()
     if not row:
         return jsonify({'error': '调拨单不存在'}), 404
-    return jsonify(row_to_dict(row))
+    result = row_to_dict(row)
+    result['config'] = APP_CONFIG
+    return jsonify(result)
 
 @app.route('/api/audit', methods=['GET'])
 def list_audit():
@@ -685,6 +716,10 @@ def manual_cleanup_expired():
     db.commit()
     return jsonify({'cleaned_count': count})
 
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    return jsonify(APP_CONFIG)
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     db = get_db()
@@ -694,6 +729,7 @@ def get_stats():
         stats[f'{status}_count'] = c[0]
     c = db.execute('SELECT COUNT(*) FROM audit_logs').fetchone()
     stats['audit_log_count'] = c[0]
+    stats['config'] = APP_CONFIG
     return jsonify(stats)
 
 if __name__ == '__main__':

@@ -1,0 +1,92 @@
+[
+  {
+    "id": 1,
+    "order_id": 1,
+    "action": "create_draft",
+    "operator_id": 1,
+    "details": {
+      "quantity": 50
+    },
+    "created_at": "2026-06-14 22:45:58",
+    "order_no": "TR20260615064558547",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 2,
+    "order_id": 1,
+    "action": "submit_reserve",
+    "operator_id": 1,
+    "details": {
+      "reservation_id": 1,
+      "expires_at": "2026-06-15T07:15:58.604265",
+      "quantity": 50
+    },
+    "created_at": "2026-06-14 22:45:58",
+    "order_no": "TR20260615064558547",
+    "username": "requester1",
+    "role": "requester"
+  },
+  {
+    "id": 3,
+    "order_id": 1,
+    "action": "reservation_expired",
+    "operator_id": 0,
+    "details": {
+      "reservation_id": 1,
+      "quantity": 50,
+      "expired_at": "2020-01-01T00:00:00.000000",
+      "released_at": "2026-06-15T06:45:58.731209",
+      "reason": "manual_cleanup"
+    },
+    "created_at": "2026-06-14 22:45:58",
+    "order_no": "TR20260615064558547",
+    "username": "system",
+    "role": "system"
+  },
+  {
+    "id": 4,
+    "order_id": 2,
+    "action": "create_draft",
+    "operator_id": 2,
+    "details": {
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 22:45:58",
+    "order_no": "TR20260615064558775",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 5,
+    "order_id": 2,
+    "action": "submit_reserve",
+    "operator_id": 2,
+    "details": {
+      "reservation_id": 2,
+      "expires_at": "2026-06-15T07:15:58.806943",
+      "quantity": 10
+    },
+    "created_at": "2026-06-14 22:45:58",
+    "order_no": "TR20260615064558775",
+    "username": "requester2",
+    "role": "requester"
+  },
+  {
+    "id": 6,
+    "order_id": 2,
+    "action": "reservation_expired",
+    "operator_id": 0,
+    "details": {
+      "reservation_id": 2,
+      "quantity": 10,
+      "expired_at": "2020-01-01T00:00:00.000000",
+      "released_at": "2026-06-15T06:45:58.867996",
+      "reason": "approve_check"
+    },
+    "created_at": "2026-06-14 22:45:58",
+    "order_no": "TR20260615064558775",
+    "username": "system",
+    "role": "system"
+  }
+]
