@@ -1,14 +1,19 @@
 import sqlite3
 import json
 import csv
+import io
 import time
 import threading
 import os
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, g, Response
 
+from config_diagnostic import ConfigDiagnostic
+
 DATABASE = 'emergency_supply.db'
 DEFAULT_RESERVATION_EXPIRE_MINUTES = 30
+
+CONFIG_DIAGNOSTIC = ConfigDiagnostic()
 
 def load_reservation_expire_minutes():
     raw = os.environ.get('RESERVATION_EXPIRE_MINUTES')
@@ -36,14 +41,29 @@ def load_reservation_expire_minutes():
 
 RESERVATION_EXPIRE_MINUTES, CONFIG_SOURCE, CONFIG_FALLBACK, CONFIG_RAW_ENV, CONFIG_RESOLUTION = load_reservation_expire_minutes()
 
+CONFIG_RESOLUTION_DIAG = CONFIG_DIAGNOSTIC.resolve_config(
+    key='reservation_expire_minutes',
+    default_value=DEFAULT_RESERVATION_EXPIRE_MINUTES,
+    env_key='RESERVATION_EXPIRE_MINUTES',
+    config_key='reservation_expire_minutes',
+    value_parser=int,
+    validator=lambda v: v > 0,
+)
+
 APP_CONFIG = {
     'reservation_expire_minutes': RESERVATION_EXPIRE_MINUTES,
     'default_reservation_expire_minutes': DEFAULT_RESERVATION_EXPIRE_MINUTES,
     'config_source': CONFIG_SOURCE,
     'config_fallback': CONFIG_FALLBACK,
     'raw_env_value': CONFIG_RAW_ENV,
-    'loaded_at': datetime.now().isoformat(),
-    'resolution_explanation': CONFIG_RESOLUTION
+    'raw_config_value': CONFIG_RESOLUTION_DIAG.raw_config_value,
+    'loaded_at': CONFIG_RESOLUTION_DIAG.loaded_at,
+    'resolution_explanation': CONFIG_RESOLUTION,
+    'conflict_detected': CONFIG_RESOLUTION_DIAG.conflict_detected,
+    'conflict_details': CONFIG_RESOLUTION_DIAG.conflict_details,
+    'fallback_reason': CONFIG_RESOLUTION_DIAG.fallback_reason,
+    'boot_sequence': CONFIG_DIAGNOSTIC._boot_sequence,
+    'process_id': CONFIG_DIAGNOSTIC._process_id,
 }
 
 app = Flask(__name__)
@@ -840,6 +860,79 @@ def get_stats():
     stats['audit_log_count'] = c[0]
     stats['config'] = APP_CONFIG
     return jsonify(stats)
+
+@app.route('/api/config/v2', methods=['GET'])
+def get_config_v2():
+    key = request.args.get('key')
+    return jsonify(CONFIG_DIAGNOSTIC.get_current_config_dict(key))
+
+@app.route('/api/config/v2/diagnose', methods=['GET'])
+def diagnose_config_v2():
+    key = request.args.get('key')
+    return jsonify(CONFIG_DIAGNOSTIC.diagnose(key))
+
+@app.route('/api/config/v2/snapshots', methods=['GET'])
+def list_snapshots_v2():
+    key = request.args.get('key')
+    limit = request.args.get('limit', 100, type=int)
+    boot = request.args.get('boot', type=int)
+    latest = request.args.get('latest', 'false').lower() == 'true'
+
+    if latest:
+        snap = CONFIG_DIAGNOSTIC.get_latest_snapshot(key)
+        return jsonify(snap.to_dict() if snap else None)
+    elif boot is not None:
+        snaps = CONFIG_DIAGNOSTIC.get_snapshots_by_boot(boot)
+    else:
+        snaps = CONFIG_DIAGNOSTIC.get_all_snapshots(key, limit)
+    return jsonify([s.to_dict() for s in snaps])
+
+@app.route('/api/config/v2/snapshots/compare', methods=['GET'])
+def compare_snapshots_v2():
+    uuid1 = request.args.get('uuid1')
+    uuid2 = request.args.get('uuid2')
+    if not uuid1 or not uuid2:
+        return jsonify({'error': '需要提供 uuid1 和 uuid2 参数'}), 400
+    return jsonify(CONFIG_DIAGNOSTIC.compare_snapshots(uuid1, uuid2))
+
+@app.route('/api/config/v2/snapshots/export.<fmt>', methods=['GET'])
+def export_snapshots_v2(fmt):
+    if fmt not in ('json', 'csv'):
+        return jsonify({'error': '仅支持 json 或 csv 格式'}), 400
+    key = request.args.get('key')
+    content = CONFIG_DIAGNOSTIC.export_snapshots(fmt=fmt, key=key)
+
+    if fmt == 'json':
+        return Response(
+            content,
+            mimetype='application/json',
+            headers={'Content-Disposition': 'attachment; filename=config_snapshots.json'}
+        )
+    else:
+        return Response(
+            content,
+            mimetype='text/csv; charset=utf-8-sig',
+            headers={'Content-Disposition': 'attachment; filename=config_snapshots.csv'}
+        )
+
+@app.route('/api/config/v2/snapshots/import', methods=['POST'])
+def import_snapshots_v2():
+    file = request.files.get('file')
+    if not file:
+        return jsonify({'error': '需要上传文件'}), 400
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file.filename.split(".")[-1]}') as tmp:
+        file.save(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        count = CONFIG_DIAGNOSTIC.import_snapshots(tmp_path)
+        return jsonify({'imported': count, 'message': f'成功导入 {count} 条快照'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        os.unlink(tmp_path)
 
 if __name__ == '__main__':
     init_db()
